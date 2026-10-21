@@ -37,13 +37,26 @@ mikufun 是一个基于 Electron 的本地追番客户端。它把「源」抽�
 
 ---
 
+## 下载
+
+| 文件 | 说明 |
+|---|---|
+| [`mikufun-Setup-1.0.3.exe`](../../releases/latest) | 安装包（推荐），约 79 MB |
+| [`mikufun-1.0.3-portable.zip`](../../releases/latest) | 便携版，解压即用 |
+
+下载地址：[**Releases 页面**](../../releases/latest)
+
+> 安装包没有代码签名，Windows 可能提示"未知发布者"，点「更多信息 → 仍要运行」即可。
+
+---
+
 ## 安装
 
 ### 方式一：安装包（推荐）
 
-下载 `mikufun-Setup-x.x.x.exe`，双击安装。装完自动创建桌面与开始菜单快捷方式。
+双击 `mikufun-Setup-x.x.x.exe`，选择安装目录，点「安装」。装完自动创建桌面与开始菜单快捷方式，带卸载程序。
 
-> 安装包没有代码签名，Windows 可能提示"未知发布者"，点「更多信息 → 仍要运行」即可。
+卸载不会删除 `%APPDATA%\mikufun`，重装后收藏和历史还在。
 
 ### 方式二：便携版
 
