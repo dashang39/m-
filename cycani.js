@@ -14,6 +14,67 @@ const HDRS = {
   'origin': 'https://www.cycani.org'
 };
 
+// 登录态（进程内有效；启动时会用保存的凭据重新登录）
+let TOKEN = '';
+
+function apiPostForm(base, path, form, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(base + path); } catch (e) { return reject(new Error('URL 无效')); }
+    const body = Object.keys(form)
+      .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(form[k]))
+      .join('&');
+    const headers = Object.assign({}, HDRS, {
+      'content-type': 'application/x-www-form-urlencoded',
+      'content-length': Buffer.byteLength(body)
+    });
+    if (TOKEN) headers['authorization'] = TOKEN;
+    const req = https.request({
+      host: u.hostname, port: u.port || 443,
+      path: u.pathname + u.search, method: 'POST',
+      headers, rejectUnauthorized: false,
+      timeout: timeoutMs || 12000
+    }, (res) => {
+      let out = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { out += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('返回非 JSON')); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 12000, () => req.destroy(new Error('请求超时')));
+    req.write(body);
+    req.end();
+  });
+}
+
+function apiGetAuthed(base, path, timeoutMs) {
+  // 带登录态的 GET：用 form 版本的 headers 构造
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(base + path); } catch (e) { return reject(new Error('URL 无效')); }
+    const headers = Object.assign({}, HDRS);
+    if (TOKEN) headers['authorization'] = TOKEN;
+    const req = https.request({
+      host: u.hostname, port: u.port || 443,
+      path: u.pathname + u.search, method: 'GET',
+      headers, rejectUnauthorized: false,
+      timeout: timeoutMs || 12000
+    }, (res) => {
+      let out = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { out += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('返回非 JSON')); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 12000, () => req.destroy(new Error('请求超时')));
+    req.end();
+  });
+}
+
 function apiGet(base, path, timeoutMs) {
   return new Promise((resolve, reject) => {
     let u;
@@ -68,6 +129,18 @@ async function probe(input) {
 
 async function call(site, fn, args) {
   const base = site.base;
+
+  if (fn === 'login') {
+    const username = String(args[0] || '').trim();
+    const password = String(args[1] || '');
+    if (!username || !password) return JSON.stringify({ ok: false, error: '请填写账号和密码' });
+    const j = await apiPostForm(base, '/api/auth/login', { Username: username, Password: password });
+    if (!j || j.code !== 0) {
+      return JSON.stringify({ ok: false, error: (j && j.msg) || '账号或密码错误' });
+    }
+    TOKEN = (j.data && j.data.token) || '';
+    return JSON.stringify({ ok: true, user: (j.data && j.data.user) || null });
+  }
 
   if (fn === 'homeSections') {
     const j = await apiGet(base, '/api/index/recommend');
@@ -127,11 +200,28 @@ async function call(site, fn, args) {
     let obj = {};
     try { obj = JSON.parse(args[0]); } catch (e) { }
     if (!obj.section_id) return JSON.stringify({ url: '', type: 'auto', error: '缺少剧集信息' });
-    // 播放地址需要登录态：未登录时返回明确提示，交给上层弹登录
-    return JSON.stringify({
-      url: '', type: 'auto', needLogin: true,
-      error: '次元城的播放地址要求登录后获取，请先登录次元城账号'
-    });
+    if (!TOKEN) {
+      return JSON.stringify({
+        url: '', type: 'auto', needLogin: true,
+        error: '次元城的播放地址要求登录后获取，请先登录次元城账号'
+      });
+    }
+    // 已登录：官方接口 /api/v2/sections/{id}/play-url
+    const sid = encodeURIComponent(obj.section_id);
+    try {
+      const j = await apiGetAuthed(base, '/api/v2/sections/' + sid + '/play-url');
+      if (j && j.code === 0 && j.data && j.data.url) {
+        const url = String(j.data.url);
+        return JSON.stringify({
+          url,
+          type: /\.m3u8/i.test(url) ? 'm3u8' : (/\.mp4/i.test(url) ? 'mp4' : 'auto'),
+          headers: { referer: 'https://www.cycani.org/', origin: 'https://www.cycani.org' }
+        });
+      }
+      return JSON.stringify({ url: '', type: 'auto', error: (j && j.msg) || '未取到播放地址' });
+    } catch (e) {
+      return JSON.stringify({ url: '', type: 'auto', error: '取播放地址失败：' + e.message });
+    }
   }
 
   throw new Error('次元城不支持：' + fn);

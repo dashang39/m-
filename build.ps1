@@ -37,7 +37,7 @@ foreach ($d in @("sources","renderer")) {
 }
 
 # 5) slim package.json (single-line JSON, avoid here-string pitfalls)
-$pkgJson = '{"name":"mikufun","productName":"mikufun","version":"1.0.3","description":"mikufun · 动漫桌面客户端（本地源引擎）","main":"main.js","author":"local","license":"MIT"}'
+$pkgJson = '{"name":"mikufun","productName":"mikufun","version":"1.0.4","description":"mikufun · 动漫桌面客户端（本地源引擎）","main":"main.js","author":"local","license":"MIT"}'
 [System.IO.File]::WriteAllText((Join-Path $app "package.json"), $pkgJson, (New-Object System.Text.UTF8Encoding $false))
 
 # 6) remove default app

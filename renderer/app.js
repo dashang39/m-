@@ -925,7 +925,21 @@ async function resolveAndPlay(retry) {
   startPlayback(res, pp);
 }
 
+
+let videoStats = null;
+
+// buffered 给的是秒，换算成"缓冲速率"（每秒缓冲多少秒内容）+ 估算带宽
+function fmtBufferRate(secPerSec, v) {
+  if (!secPerSec || secPerSec <= 0) return '';
+  // 用视频时长与估算码率粗略换算带宽（无法拿到精确字节数）
+  const rate = secPerSec;
+  if (rate >= 1.8) return '缓冲 ' + rate.toFixed(1) + '×';
+  if (rate >= 1.0) return '缓冲 ' + rate.toFixed(1) + '×（刚好跟得上）';
+  return '缓冲 ' + rate.toFixed(1) + '×（偏慢）';
+}
+
 function startPlayback(res, pp) {
+
   const v = $('#video');
   const url = res.url;
   const headers = res.headers || {};
@@ -1349,9 +1363,17 @@ async function openSourceAccounts() {
   let saved = [];
   try {
     const c = await API.getCreds();
-    if (c && c.ok && Array.isArray(c.list)) saved = c.list;
+    // 兼容两种返回：{ list: [...] } 或单源 { sourceId, account }
+    if (c && c.ok) {
+      if (Array.isArray(c.list)) saved = c.list;
+      else if (c.account) saved = [{ sourceId: c.sourceId, account: c.account }];
+    }
   } catch (e) { }
-  const accOf = (id) => { const x = saved.find(v => v.sourceId === id); return x ? x.account : ''; };
+  const accOf = (id) => {
+    const x = saved.find(v => v.sourceId === id) ||
+      (state.store && state.store.login && state.store.login[id]) || null;
+    return x ? (x.account || '') : '';
+  };
 
   openModal('播放源账号', `
     <div class="acc-tip">下列内容源需要登录才能播放正片。账号只保存在本机，加密存储，不会上传。</div>
@@ -1413,7 +1435,7 @@ async function openSettings() {
         <button class="btn btn-ghost" id="exportLog">导出日志</button>
         <button class="btn btn-ghost" id="openLog">打开日志目录</button>
       </div></div>
-    <div class="set-row"><div><div>版本</div><div class="sub">M记 1.0.2 · 本地源引擎</div></div></div>
+    <div class="set-row"><div><div>版本</div><div class="sub">M记 1.0.4 · 本地源引擎</div></div></div>
   `);
   $('#exportLog').onclick = async () => {
     try {
@@ -1882,17 +1904,16 @@ async function boot() {
 }
 
 /* ---------------- 更新公告 ---------------- */
-const NOTICE_VERSION = '1.0.3';
+const NOTICE_VERSION = '1.0.4';
 const NOTICE_ITEMS = [
-  '应用内部更名为 mikufun，界面显示名仍为「M记」',
-  '升级时会自动把旧数据目录迁移到新目录，收藏与历史不会丢',
-  '新增问题反馈入口：填写描述后可一键发送到开发者邮箱，诊断日志为可选项',
-  '新增「日志导出位置」设置，可自定义默认导出目录',
-  '新增「次元城」内容源，支持搜索、详情与剧集列表',
-  '标签检索支持在全部内容源之间切换，无分类的源也能源浏览',
-  '修复首页重复加载问题（短时间多次触发会复用同一次请求）',
-  '顶栏新增页面刷新键，按钮文字统一居中',
-  '播放页完善：半屏布局、双全屏独立控制、滚轮调亮度音量',
+  '次元城支持账号登录，并打通播放地址获取',
+  '设置新增「播放源账号」，可快速添加、修改或清除各内容源的账号',
+  '播放时遇到需要登录的源，会自动弹出登录窗口，登录后自动续播',
+  '登录凭据按内容源独立加密保存，下次启动自动登录',
+  '导入内容源后自动在后台检测是否可用',
+  '提示消息统一移到底部右侧，并自动收起',
+  '修复首页重复加载问题',
+  '修正设置页版本号显示',
   '开源地址与下载：<a href="https://github.com/dashang39/m-" target="_blank">github.com/dashang39/m-</a>',
   '移除了HIM'
 ];
