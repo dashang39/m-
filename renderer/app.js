@@ -76,12 +76,19 @@ function fmtTime(sec) {
   const mm = String(m).padStart(h ? 2 : 1, '0'), ss = String(s).padStart(2, '0');
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
-function toast(msg, ms) {
+function toast(msg, ms, type) {
   const t = $('#toast');
+  if (!t) return;
   t.textContent = msg;
-  t.classList.remove('hidden');
+  t.className = 'toast-show' + (type ? ' toast-' + type : '');
+  // 强制重排以便重复触发动画
+  void t.offsetWidth;
+  t.classList.add('toast-in');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.add('hidden'), ms || 2200);
+  t._timer = setTimeout(() => {
+    t.classList.remove('toast-in');
+    t.classList.add('toast-out');
+  }, ms || 2400);
 }
 function sourceName(id) {
   const s = state.sources.find(x => x.id === id);
@@ -902,6 +909,12 @@ async function resolveAndPlay(retry) {
       openCaptcha(pp.sourceId, () => resolveAndPlay(true));
       return;
     }
+    if (res.needLogin && !retry) {
+      // 直接弹登录窗，登录成功后自动重试本集
+      toast((res.error || '该源需要登录后才能播放') + '，已为你打开登录窗口', 3200);
+      openLoginDialog(pp.sourceId, () => resolveAndPlay(true));
+      return;
+    }
     if (res.needLogin) {
       showPlayError('需要登录', res.error || '该集需要登录后观看', pp.sourceId, true);
       return;
@@ -1257,35 +1270,67 @@ async function openCaptcha(sourceId, onSuccess) {
 $('#captchaClose').onclick = () => { $('#captchaModal').classList.add('hidden'); };
 
 /* ---------------- 登录 ---------------- */
-async function openLoginDialog() {
-  openModal('账号登录', `
-    <div class="field"><label>账号（邮箱）</label><input id="loginAcc" placeholder="请输入邮箱，例如 name@qq.com" /></div>
-    <div class="field"><label>密码</label><input id="loginPwd" type="password" placeholder="请输入密码" /></div>
-    <div class="captcha-tip">Lanerc 只支持<b>邮箱</b>登录（手机号/用户名会提示"不支持该邮箱域名"）。登录成功后凭据加密保存在本机，下次自动登录。</div>
-    <div style="display:flex;gap:10px;margin-top:6px"><button class="btn btn-primary" id="doLogin">登录</button><span id="loginMsg" class="captcha-tip"></span></div>
+async function openLoginDialog(sourceId, onSuccess) {
+  sourceId = sourceId || 'lanerc';
+  const src = state.sources.find(x => x.id === sourceId) || { id: sourceId, name: sourceId };
+  const isEmail = sourceId === 'lanerc';
+  // 读取已保存账号（仅账号名，不含密码）
+  let savedAcc = '';
+  try {
+    const c = await API.getCreds();
+    if (c && c.ok && c.account && (!c.sourceId || c.sourceId === sourceId)) savedAcc = c.account;
+  } catch (e) { }
+
+  openModal('登录 · ' + src.name, `
+    <div class="login-src">
+      <span class="login-src-badge">内容源</span>
+      <b>${esc(src.name)}</b>
+      ${savedAcc ? '<span class="login-saved">已保存账号：' + esc(savedAcc) + '</span>' : ''}
+    </div>
+    <div class="field">
+      <label>${isEmail ? '账号（邮箱）' : '账号'}</label>
+      <input id="loginAcc" value="${esc(savedAcc)}" placeholder="${isEmail ? '请输入邮箱，例如 name@qq.com' : '请输入账号'}" />
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="loginPwd" type="password" placeholder="请输入密码" />
+    </div>
+    <div class="captcha-tip">${isEmail
+      ? 'Lanerc 只支持<b>邮箱</b>登录（手机号/用户名会提示"不支持该邮箱域名"）。'
+      : '登录成功后播放地址将由该源的账号权限获取。'}凭据加密保存在本机，下次自动登录。</div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button class="btn btn-primary" id="doLogin">登录</button>
+      <span id="loginMsg" class="captcha-tip"></span>
+    </div>
   `);
-  $('#doLogin').onclick = async () => {
+
+  const submit = async () => {
     const acc = ($('#loginAcc').value || '').trim();
     const pwd = $('#loginPwd').value || '';
     const msg = $('#loginMsg');
-    if (!acc || !pwd) { msg.textContent = '请填写邮箱和密码'; return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(acc)) {
+    if (!acc || !pwd) { msg.textContent = '请填写账号和密码'; return; }
+    if (isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(acc)) {
       msg.textContent = '请填写完整邮箱（手机号/用户名不支持）';
       return;
     }
     msg.textContent = '登录中…';
     let r = null;
-    try { r = await API.login('lanerc', acc, pwd); } catch (e) { r = { ok: false, error: String(e.message || e) }; }
+    try { r = await API.login(sourceId, acc, pwd); } catch (e) { r = { ok: false, error: String(e.message || e) }; }
     const res = parseJSON(r && r.data, {});
     if (res && res.ok) {
-      try { await API.saveCreds('lanerc', acc, pwd); } catch (e) { }
+      try { await API.saveCreds(sourceId, acc, pwd); } catch (e) { }
       closeModal();
-      toast('登录成功，凭据已保存');
-      resolveAndPlay(false);
+      toast('登录成功，凭据已保存', 2600);
+      if (typeof onSuccess === 'function') onSuccess();
+      else resolveAndPlay(false);
     } else {
       msg.textContent = (res && res.error) || (r && r.error) || '登录失败';
     }
   };
+
+  $('#doLogin').onclick = submit;
+  $('#loginPwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  setTimeout(() => { const el = $('#loginAcc'); if (el && !el.value) el.focus(); else $('#loginPwd') && $('#loginPwd').focus(); }, 120);
 }
 
 /* ---------------- 设置 ---------------- */
@@ -1297,6 +1342,50 @@ function openModal(title, bodyHTML) {
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modalClose').onclick = closeModal;
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+
+async function openSourceAccounts() {
+  // 需要登录的源：描述里带「登录」的，外加已知需要登录的
+  const need = state.sources.filter(x => /登录/.test(x.desc || '') || x.id === 'lanerc' || x.id === 'cycani');
+  let saved = [];
+  try {
+    const c = await API.getCreds();
+    if (c && c.ok && Array.isArray(c.list)) saved = c.list;
+  } catch (e) { }
+  const accOf = (id) => { const x = saved.find(v => v.sourceId === id); return x ? x.account : ''; };
+
+  openModal('播放源账号', `
+    <div class="acc-tip">下列内容源需要登录才能播放正片。账号只保存在本机，加密存储，不会上传。</div>
+    <div class="acc-list">
+      ${need.length ? need.map(x => {
+        const acc = accOf(x.id);
+        return '<div class="acc-row">' +
+          '<div class="acc-info"><b>' + esc(x.name) + '</b>' +
+          '<span class="' + (acc ? 'acc-on' : 'acc-off') + '">' + (acc ? ('已登录：' + esc(acc)) : '未登录') + '</span></div>' +
+          '<div class="acc-ops">' +
+          '<button class="btn btn-ghost" data-acc-login="' + esc(x.id) + '">' + (acc ? '修改' : '登录') + '</button>' +
+          (acc ? '<button class="btn btn-ghost" data-acc-clear="' + esc(x.id) + '">清除</button>' : '') +
+          '</div></div>';
+      }).join('') : '<div class="acc-empty">当前没有需要登录的源</div>'}
+    </div>
+  `);
+
+  const body = $('#modalBody');
+  if (!body) return;
+  body.onclick = async (e) => {
+    const loginBtn = e.target.closest('[data-acc-login]');
+    if (loginBtn) {
+      closeModal();
+      openLoginDialog(loginBtn.dataset.accLogin, async () => { await openSourceAccounts(); });
+      return;
+    }
+    const clearBtn = e.target.closest('[data-acc-clear]');
+    if (clearBtn) {
+      await API.clearCreds(clearBtn.dataset.accClear);
+      toast('已清除该源账号', 2000);
+      await openSourceAccounts();
+    }
+  };
+}
 
 async function openSettings() {
   const s = state.settings;
@@ -1315,6 +1404,8 @@ async function openSettings() {
     </div>
     <div class="set-row"><div><div>问题反馈</div><div class="sub">一键导出诊断日志，并发送到开发者邮箱</div></div>
       <button class="btn btn-primary" id="feedback">反馈问题</button></div>
+    <div class="set-row"><div><div>播放源账号</div><div class="sub">需要登录的源可在这里快速添加、修改或清除账号</div></div>
+      <button class="btn btn-ghost" id="srcAccounts">管理账号</button></div>
     <div class="set-row"><div><div>日志导出位置</div><div class="sub" id="logDirText">默认：下载文件夹</div></div>
       <button class="btn btn-ghost" id="pickLogDir">选择位置</button></div>
     <div class="set-row"><div><div>诊断日志</div><div class="sub">遇到问题时导出，便于排查</div></div>
@@ -1340,6 +1431,8 @@ async function openSettings() {
     else toast('导出失败：' + ((r && r.error) || '未知错误'));
   };
   $('#openLog').onclick = () => API.openLogDir();
+
+  $('#srcAccounts').onclick = () => openSourceAccounts();
 
   (function initLogDir() {
     const t = $('#logDirText');
@@ -1534,7 +1627,23 @@ async function openSourceManager() {
       await API.saveSettings({ enabledSources: state.enabled });
       await refreshSources();
       rerender();
-      toast('已导入：' + (r.name || r.id), 3000);
+      const nm = r.name || r.id;
+      toast('已导入「' + nm + '」，后台检测中…', 2200);
+
+      // 后台静默适配：自动跑一次健康检查，结果用右下角小提示回报
+      try {
+        const h = await API.health([r.id], '鬼灭');
+        const res = h && (Array.isArray(h.res) ? h.res[0] : null) || (h && h.health && h.health[r.id]) || null;
+        const ok = res ? res.ok : !!(h && h.ok);
+        const cnt = res && res.count;
+        if (ok) {
+          toast('「' + nm + '」已适配可用' + (cnt ? '（' + cnt + ' 条结果）' : ''), 3000);
+        } else {
+          toast('「' + nm + '」已导入，但暂时无返回内容' + (res && res.error ? '：' + res.error : ''), 4200);
+        }
+      } catch (e) {
+        // 静默失败，不影响导入结果
+      }
     } else {
       toast('导入失败：' + ((r && r.error) || '未知错误'), 5000);
     }

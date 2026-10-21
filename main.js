@@ -417,52 +417,88 @@ ipcMain.handle('log:open', () => {
 const CRED_FILE = path.join(DATA_DIR, 'creds.bin');
 const CRED_KEY = require('crypto').createHash('sha256').update('mji-local-credential-2026').digest();
 
-function saveCreds(sourceId, account, password) {
+// 多源凭据：{ [sourceId]: { account, password } }，整体 AES-256-GCM 加密
+function loadCredsAll() {
   try {
-    const crypto = require('crypto');
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', CRED_KEY, iv);
-    const plain = Buffer.from(JSON.stringify({ sourceId, account, password }), 'utf8');
-    const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(CRED_FILE, Buffer.concat([iv, tag, ct]));
-    writeLog('INFO', ['[auth] 凭据已保存']);
-    return true;
-  } catch (e) {
-    writeLog('WARN', ['[auth] 凭据保存失败', String(e.message || e)]);
-    return false;
-  }
-}
-
-function loadCreds() {
-  try {
-    if (!fs.existsSync(CRED_FILE)) return null;
+    if (!fs.existsSync(CRED_FILE)) return {};
     const crypto = require('crypto');
     const raw = fs.readFileSync(CRED_FILE);
-    if (raw.length < 30) return null;
+    if (raw.length < 30) return {};
     const iv = raw.slice(0, 12);
     const tag = raw.slice(12, 28);
     const ct = raw.slice(28);
     const d = crypto.createDecipheriv('aes-256-gcm', CRED_KEY, iv);
     d.setAuthTag(tag);
-    const plain = Buffer.concat([d.update(ct), d.final()]).toString('utf8');
-    return JSON.parse(plain);
+    const obj = JSON.parse(Buffer.concat([d.update(ct), d.final()]).toString('utf8'));
+    if (!obj || typeof obj !== 'object') return {};
+    // 兼容旧格式 { sourceId, account, password }
+    if (obj.account && obj.password) {
+      const k = obj.sourceId || 'lanerc';
+      return { [k]: { account: obj.account, password: obj.password } };
+    }
+    return obj;
   } catch (e) {
-    return null;
+    return {};
   }
 }
 
-async function autoLogin() {
-  const cred = loadCreds();
-  if (!cred || !cred.account || !cred.password) return;
+function writeCredsAll(all) {
   try {
-    const r = await callSource(cred.sourceId || 'lanerc', 'login', [cred.account, cred.password], {});
-    let j = {};
-    try { j = JSON.parse((r && r.data) || '{}'); } catch (e) { }
-    writeLog('INFO', ['[auth] 自动登录', j.ok ? '成功' : ('失败：' + (j.error || ''))]);
+    const crypto = require('crypto');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', CRED_KEY, iv);
+    const plain = Buffer.from(JSON.stringify(all), 'utf8');
+    const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(CRED_FILE, Buffer.concat([iv, tag, ct]));
+    return true;
   } catch (e) {
-    writeLog('WARN', ['[auth] 自动登录异常', String((e && e.message) || e)]);
+    writeLog('WARN', ['[auth] 凭据保存失败', String((e && e.message) || e)]);
+    return false;
+  }
+}
+
+function saveCreds(sourceId, account, password) {
+  const all = loadCredsAll();
+  all[sourceId || 'lanerc'] = { account, password };
+  const ok = writeCredsAll(all);
+  if (ok) writeLog('INFO', ['[auth] 凭据已保存', sourceId || 'lanerc']);
+  return ok;
+}
+
+function loadCreds(sourceId) {
+  const all = loadCredsAll();
+  if (sourceId) return all[sourceId] || null;
+  // 不指定时返回第一条（兼容旧调用）
+  const keys = Object.keys(all);
+  if (!keys.length) return null;
+  return Object.assign({ sourceId: keys[0] }, all[keys[0]]);
+}
+
+function clearCreds(sourceId) {
+  if (!sourceId) {
+    try { if (fs.existsSync(CRED_FILE)) fs.unlinkSync(CRED_FILE); } catch (e) { }
+    return true;
+  }
+  const all = loadCredsAll();
+  delete all[sourceId];
+  return writeCredsAll(all);
+}
+
+async function autoLogin() {
+  const all = loadCredsAll();
+  for (const sourceId of Object.keys(all)) {
+    const cred = all[sourceId];
+    if (!cred || !cred.account || !cred.password) continue;
+    try {
+      const r = await callSource(sourceId, 'login', [cred.account, cred.password], {});
+      let j = {};
+      try { j = JSON.parse((r && r.data) || '{}'); } catch (e) { }
+      writeLog('INFO', ['[auth] 自动登录', sourceId, j.ok ? '成功' : ('失败：' + (j.error || ''))]);
+    } catch (e) {
+      writeLog('WARN', ['[auth] 自动登录异常', sourceId, String((e && e.message) || e)]);
+    }
   }
 }
 
@@ -598,7 +634,7 @@ ipcMain.handle('auth:save', (_e, { sourceId, account, password }) => {
 
 ipcMain.handle('auth:has', () => {
   const c = loadCreds();
-  return { ok: true, has: !!(c && c.account) };
+  return { ok: true, has: !!(c && c.account), account: (c && c.account) || '', sourceId: (c && c.sourceId) || '' };
 });
 
 ipcMain.handle('auth:clear', () => {
