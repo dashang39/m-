@@ -1784,6 +1784,7 @@ const NOTICE_ITEMS = [
   '修复首页重复加载问题（短时间多次触发会复用同一次请求）',
   '顶栏新增页面刷新键，按钮文字统一居中',
   '播放页完善：半屏布局、双全屏独立控制、滚轮调亮度音量',
+  '开源地址与下载：<a href="https://github.com/dashang39/m-" target="_blank">github.com/dashang39/m-</a>',
   '移除了HIM'
 ];
 
@@ -1796,7 +1797,7 @@ function showUpdateNotice() {
       <span class="notice-sub">本次更新内容</span>
     </div>
     <ol class="notice-list">
-      ${NOTICE_ITEMS.map(t => '<li>' + esc(t) + '</li>').join('')}
+      ${NOTICE_ITEMS.map(t => '<li>' + (/<a href="https:\/\/github\.com\/dashang39\/m-"/.test(t) ? t : esc(t)) + '</li>').join('')}
     </ol>
     <div class="notice-foot">
       <button class="btn btn-primary" id="noticeOk">知道了</button>
