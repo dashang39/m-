@@ -1,0 +1,22 @@
+{
+  "name": "mikufun",
+  "productName": "mikufun",
+  "version": "1.0.3",
+  "description": "mikufun · 动漫桌面客户端（本地源引擎）",
+  "main": "main.js",
+  "author": "local",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "echo use build.ps1"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-packager": "^17.1.2",
+    "rcedit": "^5.0.1"
+  },
+  "dependencies": {
+    "hls.js": "^1.7.3"
+  }
+}

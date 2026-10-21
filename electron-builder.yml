@@ -1,0 +1,30 @@
+appId: com.mji.deskop
+productName: mikufun
+copyright: M记
+directories:
+  output: F:\M记安装包
+  buildResources: assets
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  artifactName: mikufun-Setup-${version}.exe
+  legalTrademarks: ""
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: M记
+  uninstallDisplayName: M记 ${version}
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+  menuCategory: false
+  artifactName: mikufun-Setup-${version}.exe

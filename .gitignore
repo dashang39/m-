@@ -1,0 +1,32 @@
+# 依赖与构建产物
+node_modules/
+dist/
+package-lock.json
+pnpm-lock.yaml
+
+# 运行时数据与凭据（绝不提交）
+*.log
+err.log
+out.log
+store.json
+creds.bin
+*.pem
+*.key
+
+# 开发临时文件
+shots/
+*.tmp
+*.bak
+__pycache__/
+*.pyc
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本地探针脚本
+probe_*.js
+test_*.js
+dbg_*.js
